@@ -11,19 +11,20 @@
 - **n8n trigger working:** New `Alerts` records are detected automatically
 - **Flowise call integrated:** Node 3 executes and returns parsable scoring payload
 - **Normalization logic working:** Output is transformed to Airtable-compatible fields
+- **Merge fix implemented:** Set output + HTTP response are merged to preserve Airtable record IDs through scoring
 - **Create record working:** Scoring results are written to `Scoring_Results`
 - **Update record working:** Original `Alerts.status` is updated to `scored`
-- **End-to-end proof complete:** Full run succeeded with record linkage visible in Airtable
+- **End-to-end proof complete:** TEST001, TEST002, and TEST003 runs succeeded with record linkage visible in Airtable
 
 ---
 
-## Critical Gaps (Must Fix Before Checkpoint 2) 🔴
+## Current Gaps (Post-Fix) 🟡
 
 | Gap | Action Item | Owner | Hours |
 |-----|------------|-------|-------|
-| **Scoring quality defaults too low** | Tighten Flowise prompt/rules so obvious phishing does not default to `informational` with `0` values | You | 0.5 |
-| **Repeatability evidence** | Run at least 2 more records (edge case + bad input) and capture outputs for demo and report | You | 0.5 |
-| **Artifact export pending** | Export final n8n workflow JSON and commit to repo under component-3-scoring | You | 0.25 |
+| **Workflow artifact export pending** | Export final n8n workflow JSON and commit to repo under `component-3-scoring` | You | 0.25 |
+| **Confidence scale consistency** | Standardize confidence handling (0-1 vs 0-100) before Airtable write | You | 0.25 |
+| **Flowise quota handling** | Add retry/backoff path or fallback when Flowise prediction limit is exceeded | You | 0.5 |
 
 ---
 
@@ -38,31 +39,30 @@
 
 ---
 
-## Recommended Fix Order (Next 2 Hours)
+## Recommended Fix Order (Next 1-2 Hours)
 
-1. **Run two additional test alerts**
-- One edge case and one malformed case
-- Confirm no workflow break and status still transitions to `scored`
-
-2. **Improve Flowise scoring prompt**
-- Add explicit phishing/routine rules and prevent all-zero default output unless input is empty
-
-3. **Export final workflow artifacts**
+1. **Export final workflow artifacts**
 - Save n8n export JSON to repo and capture final screenshot set for demo evidence
+
+2. **Normalize confidence scale**
+- Ensure confidence is stored consistently as either 0-1 or 0-100 across all records
+
+3. **Add quota-aware error handling**
+- Handle Flowise prediction-limit responses without breaking the workflow
 
 ---
 
 ## Test Data Gaps 📊
 
-**Current status:** At least one successful end-to-end test (`TEST001`) has been completed.
+**Current status:** Three successful end-to-end tests completed (`TEST001`, `TEST002`, `TEST003`).
 
-Run these additional records for stronger demo evidence:
+Validated records:
 
-| Test Case | alert_id | threat_description | source | Expected Outcome |
-|-----------|----------|-------------------|--------|-----------------|
-| **Normal: High-risk phishing** | TEST001 | "Phishing email with spoofed Amazon domain detected targeting finance@acmecorp.com. Sender IP traced to Moscow." | email_gateway | severity_level = HIGH, relevance_score = 85+ |
-| **Edge: Ambiguous threat** | TEST002 | "Routine firewall rule update completed on fw-01 during scheduled maintenance window." | firewall_log | severity_level = LOW, relevance_score = 20-40 |
-| **Bad data: Missing fields** | TEST003 | "" (empty) | "" (empty) | Component 3 should gracefully fail and log error to Airtable or n8n |
+| Test Case | alert_id | threat_description | source | Verified Outcome |
+|-----------|----------|-------------------|--------|------------------|
+| **Normal: High-risk phishing** | TEST001 | "Phishing email detected from domain spoofing paypal-secure.tk..." | email_gateway | severity_level = high, relevance_score = 80, threat_category = phishing |
+| **Edge: Routine maintenance** | TEST002 | "Routine firewall rule update completed on fw-01 during scheduled maintenance window..." | firewall_log | severity_level = informational, relevance_score = 5, threat_category = routine_activity |
+| **Bad data: Missing fields** | TEST003 | "" (empty) | unknown | severity_level = informational, relevance_score = 0, safe defaults written |
 
 ---
 
@@ -81,7 +81,9 @@ For Checkpoint 2, **your threshold should be:**
 1. ✅ Airtable schema (Alerts + Scoring_Results tables)
 2. ✅ n8n trigger and handoff workflow
 3. ✅ Flowise scoring call integrated and normalized
-4. ✅ One end-to-end test record flowing through
+4. ✅ Three end-to-end test records flowing through
+5. ✅ Linked-record mapping fixed (`alert_id` array of Airtable record IDs)
+6. ✅ Merge + normalize path validated for stable writeback
 
 **Demo scenario for Checkpoint 2:**
 > "I create an alert in Airtable. n8n automatically triggers my Groq-powered scoring engine. Component 3 analyzes the threat, extracts entities using NER, retrieves context via RAG, assigns a relevance score and severity level, and writes the result back to Airtable—all automatically, no manual steps."
@@ -141,7 +143,7 @@ This version matches the labs already in your repo and keeps the demo small enou
 
 1. **`component-3-scoring/n8n-workflow.json`** — Save your n8n workflow export here (add to GitHub)
 2. **`component-3-scoring/api-integration.md`** — Document the Component 3 API endpoint (what n8n calls)
-3. **`copilot-instructions.md`** — Update the "Current State" section with: "✅ Airtable schema live | ✅ n8n workflow operational | ✅ End-to-end demo record: TEST001"
+3. **`copilot-instructions.md`** — Update the "Current State" section with: "✅ Airtable schema live | ✅ n8n workflow operational | ✅ End-to-end demo records: TEST001, TEST002, TEST003"
 
 ---
 

@@ -73,32 +73,136 @@ Create two tables with the schema defined in [copilot-instructions.md](../copilo
 - scored_at (date/time)
 
 ### 3) Flowise Configuration
-Deploy a threat scoring chatflow with the following contract:
-```json
+Deploy a threat scoring chatflow with this prompt template:
+
+```text
+You are a cybersecurity threat scoring assistant.
+
+Given a threat description and a source, return ONLY valid JSON. Do not include markdown, explanations, or extra text.
+
+Use the threat description as the primary evidence. Use the source as supporting context. Different inputs must produce different scores and labels when the evidence differs.
+
+Respond with ONLY a JSON object in this exact shape:
 {
-  "relevance_score": 0,
-  "severity_level": "critical|high|medium|low|informational",
-  "extracted_entities": "",
-  "threat_category": "",
-  "confidence": 0,
-  "recommended_actions": ""
+  "relevance_score": 50,
+  "severity_level": "medium",
+  "extracted_entities": [],
+  "threat_category": "suspicious_activity",
+  "confidence": 50,
+  "recommended_actions": ["investigate further"]
 }
+
+Rules:
+- Return JSON only.
+- Do not include markdown.
+- Do not include explanations.
+- Use the threat description and source to choose the score and labels.
+- The source can provide useful context, but do not invent evidence that is not in the description.
+- If the alert is clearly malicious, set relevance_score high and severity_level to critical or high.
+- If it is routine maintenance or a benign operational note, set relevance_score low and severity_level to low or informational.
+- If the alert is ambiguous, choose the safest moderate label and a mid-range score.
+
+Output rules:
+- relevance_score must be an integer from 0 to 100
+- confidence must be an integer from 0 to 100
+- extracted_entities must be an array of short strings; use [] if none. If the input contains names, IPs, domains, file names, systems, or tools, extract them.
+- recommended_actions must be an array of short action strings; use [] if none. The action should match the severity level.
+- threat_category must be a short lowercase label like phishing, malware, unauthorized_access, suspicious_activity, routine_maintenance, benign
+- If the input is empty or blank, return:
+   {
+      "relevance_score": 0,
+      "severity_level": "informational",
+      "extracted_entities": [],
+      "threat_category": "benign",
+      "confidence": 0,
+      "recommended_actions": ["no action required"]
+   }
+
+Decision logic:
+- phishing, spoofed login, fake MFA, or credential harvesting -> high or critical
+- unauthorized login from unusual location, IP, or device -> high unless the text clearly says it is approved
+- scheduled maintenance, patching, firewall changes, or routine admin work -> low
+- suspicious but unconfirmed behavior -> medium
+- only use informational when the text is clearly harmless or unrelated to security
+
+Examples:
+- Input: "Unauthorized login from IP 198.51.100.4 traced to Moscow targeting user John Miller"
+   Output severity should be high or critical, with entities like the IP and user name.
+- Input: "Routine firewall rule update completed on fw-01 during scheduled maintenance window"
+   Output severity should be low, with entities like fw-01 and firewall rule update.
+- Input: "User reported a suspicious email with a link asking for password verification"
+   Output severity should be medium or high, depending on how strong the phishing indicators are.
+
+Return JSON only.
 ```
 
-Input the threat description and expect JSON output with all fields populated.
+Use a low temperature setting such as 0.1 or 0.2 for more consistent results. Keep the output parser connected to the LLM Chain.
 
 ### 4) n8n Workflow Configuration
-Build a 6-node workflow:
-1. **Airtable Trigger** — Listen for new records with status=pending_scoring
-2. **Flowise HTTP Request** — Call scoring chain with threat_description
-3. **Code Node** — Normalize output (convert arrays to strings)
-4. **Airtable Create** — Write scored result to Scoring_Results
-5. **Airtable Update** — Mark source alert as scored
-6. **Success Response** — Log completion
+Build the workflow with record ID preservation:
+1. **Airtable Search/Trigger** — Read pending alerts from Alerts table
+2. **Set Node** — Keep `record_id`, `alert_id`, `input_text`, `source`
+3. **Flowise HTTP Request** — Send `input_text` to chatflow
+4. **Merge Node (Combine by Position)** — Merge Set output + HTTP output so Airtable record IDs are not lost
+5. **Code Node (Normalizing Output)** — Parse model JSON and normalize arrays to text
+6. **Airtable Create** — Write scored output to Scoring_Results
+7. **Airtable Update** — Mark source alert as `scored`
 
 Critical expressions:
-- Linked record field: `{{ [ $item(0).$node["Airtable Trigger"].json["id"] ] }}`
-- Array to string: `{{ Array.isArray($json.extracted_entities) ? $json.extracted_entities.join(", ") : ($json.extracted_entities ?? "") }}`
+- Linked record field (`Scoring_Results.alert_id`): `{{ [$json.record_id] }}`
+- score_id: `{{ $json.record_id + "-score" }}`
+- extracted_entities (long text): `{{ $json.extracted_entities_text }}`
+- recommended_actions (long text): `{{ $json.recommended_actions_text }}`
+
+Normalizing Output (Code node):
+```javascript
+const results = [];
+
+for (const it of items) {
+   const raw = it.json || {};
+   let parsed = {};
+
+   try {
+      if (typeof raw.text === 'string') parsed = JSON.parse(raw.text);
+   } catch {}
+
+   try {
+      if (!Object.keys(parsed).length && typeof raw.answer === 'string') parsed = JSON.parse(raw.answer);
+   } catch {}
+
+   try {
+      if (!Object.keys(parsed).length && typeof raw.response === 'string') parsed = JSON.parse(raw.response);
+   } catch {}
+
+   const extractedEntities = Array.isArray(parsed.extracted_entities)
+      ? parsed.extracted_entities
+      : Array.isArray(parsed.entities)
+         ? parsed.entities
+         : [];
+
+   const recommendedActions = Array.isArray(parsed.recommended_actions)
+      ? parsed.recommended_actions
+      : Array.isArray(parsed.recommendations)
+         ? parsed.recommendations
+         : [];
+
+   const normalized = {
+      record_id: raw.record_id || raw.id || raw.alert_record_id,
+      relevance_score: Number(parsed.relevance_score ?? 0),
+      severity_level: String(parsed.severity_level ?? 'informational').toLowerCase(),
+      extracted_entities: extractedEntities,
+      extracted_entities_text: extractedEntities.join(', '),
+      threat_category: String(parsed.threat_category ?? 'unknown').toLowerCase(),
+      confidence: Number(parsed.confidence ?? 0),
+      recommended_actions: recommendedActions,
+      recommended_actions_text: recommendedActions.join(', ')
+   };
+
+   results.push({ json: { ...it.json, ...normalized } });
+}
+
+return results;
+```
 
 ## How to Test
 
@@ -115,6 +219,7 @@ Critical expressions:
    - Scoring_Results row created with relevance_score 75-100, severity_level=high/critical
    - Alerts.status changed to scored
    - Extracted entities include domain, email address
+   - Verified sample output: relevance_score=80, severity=high, threat_category=phishing
 
 ### TEST002: Routine Maintenance (Should Score Low)
 1. Create Airtable record:
@@ -128,6 +233,7 @@ Critical expressions:
 3. Expected outcome:
    - relevance_score 0-30, severity_level=informational/low
    - Demonstrates accurate filtering of routine ops
+   - Verified sample output: relevance_score=5, severity=informational, threat_category=routine_activity
 
 ### TEST003: Bad Data (Should Handle Gracefully)
 1. Create Airtable record:
@@ -140,7 +246,8 @@ Critical expressions:
 
 3. Expected outcome:
    - Workflow completes without crashing
-   - Scoring_Results created with safe default values or error logged
+   - Scoring_Results created with safe default values
+   - Verified sample output: relevance_score=0, severity=informational, threat_category=routine_activity
    - Demonstrates resilience
 
 ## Known Limitations
@@ -149,24 +256,25 @@ Critical expressions:
 - NER model accuracy is lower on cybersecurity terminology (industry-specific entities underdetected)
 - Phishing classifier has ~20% false positive rate
 - Current milestone simulates upstream components through manual Airtable input
+- Flowise Cloud may return prediction quota/rate-limit errors during heavy testing
 
 ## Checkpoint 2 Status
 ✅ **READY** for demonstration
 - Airtable schema live with two linked tables
 - n8n workflow all nodes turn green (verified successful execution)
-- End-to-end TEST001 validated
+- End-to-end TEST001, TEST002, and TEST003 validated
 - Status transitions working (pending_scoring → scored)
 - Linked record relationship confirmed
+- Merge + Normalize pipeline confirmed (record IDs preserved through HTTP)
 
 **Remaining for production:**
-- TEST002 and TEST003 repeatability runs
-- Flowise prompt tuning to prevent all-zero defaults
-- n8n workflow JSON exported to repo
+- Export final n8n workflow JSON to repo
+- Improve confidence standardization (0-1 vs 0-100)
 - Integration with Components 1, 2, 4
 
 ## Next Steps
-1. Run TEST002 and TEST003 for edge case validation
-2. Improve Flowise prompt with explicit threat category rules
-3. Export n8n workflow to component-3-scoring/n8n-workflow.json
-4. Build Components 1 (ingestion) and 2 (AI processing) data sources
-5. Implement Component 4 (Slack notifications, dashboard output)
+1. Export n8n workflow to `component-3-scoring/n8n-workflow.json`
+2. Standardize confidence to a single scale (0-100) before Airtable write
+3. Build Components 1 (ingestion) and 2 (AI processing) data sources
+4. Implement Component 4 (Slack notifications, dashboard output)
+5. Add retry/error handling for Flowise prediction-limit responses

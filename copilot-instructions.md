@@ -18,7 +18,7 @@
 - Hugging Face Inference API (NER, zero-shot classification, entity extraction)
 - Airtable (shared database — 3-4 tables: Alerts, Threats, Scoring_Results, Actions)
 - GitHub (repo, documentation, portfolio)
-- Teachable Machine (image classification for phishing detection)
+
 
 ## Airtable Schema
 
@@ -54,21 +54,28 @@
 - Confidence scores: 0-100 percent
 
 ## Current State
-- **What's working:** 
-  - Component 3 (Scoring) model selection complete and tested (Llama 3.1, NER, RAG system)
-  - Week 4 model comparison validated Groq as optimal primary model
-  - Week 5 fine-tuned phishing classifier (80% accuracy)
-  - Week 7 RAG security knowledge system operational
-  - All scoring logic and AI pipelines designed and tested
-- **What's in progress:** 
-  - Integration of scoring component with n8n workflow
-  - Connection to Airtable Alerts/Scoring_Results tables
-  - End-to-end workflow testing with sample alerts
-- **Known issues:** 
-  - NER model accuracy on cybersecurity terminology (e.g., "SSH" extracted as "SS")
-  - Legitimate email false positive rate in phishing classifier (~20%)
-  - RAG system needs tuning for better chunk size and Top-K retrieval
-- **Next milestone:** Checkpoint 2 (Week 9) — one record end-to-end through all 4 components with successful scoring and action
+- **What's working now (new since Week 8):**
+  - Checkpoint 2 end-to-end path for Component 3 is operational: Airtable alert -> n8n -> Flowise/Groq scoring -> Airtable `Scoring_Results` writeback -> Alerts status update to `scored`
+  - Three validation records succeeded (`TEST001`, `TEST002`, `TEST003`) with linked-record writeback confirmed
+  - n8n data-shape issues were resolved using Merge + Normalizing Output pipeline to preserve Airtable record IDs during HTTP calls
+  - Field mapping is stable for `relevance_score`, `severity_level`, `extracted_entities`, `threat_category`, `confidence`, and `recommended_actions`
+  - Prompt behavior improved to produce input-dependent outputs instead of repeating generic defaults
+- **What Checkpoint 2 revealed (new issues):**
+  - Flowise Cloud prediction quota/rate limits can interrupt runs (`Predictions limit exceeded`)
+  - Confidence scale consistency still needs enforcement (0-1 vs 0-100 interpretations)
+  - Airtable long-text fields require array-to-string normalization (`extracted_entities`, `recommended_actions`)
+  - Linked record fields fail unless `alert_id` is sent as an array containing the Airtable record ID
+- **Schema changes:**
+  - No structural table redesign was required for Checkpoint 2
+  - Confirmed required field handling in practice:
+    - `Scoring_Results.alert_id` must be a linked-record array of Airtable record IDs
+    - `extracted_entities` and `recommended_actions` are stored as long-text outputs after normalization
+    - `Alerts.status` operational values used in this milestone are `pending_scoring`, `scored`, and `failed`
+- **What's in progress:**
+  - Exporting final n8n workflow JSON artifact into the repo
+  - Standardizing confidence scale before writeback
+  - Adding retry/fallback handling for Flowise quota errors
+- **Next milestone:** Post-Checkpoint 2 hardening and integration with Components 1, 2, and 4 beyond manual/simulated upstream inputs
 
 ## Repository Structure
 ```

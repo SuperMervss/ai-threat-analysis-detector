@@ -21,16 +21,24 @@ A capstone project that ingests security threat alerts from multiple sources, pr
 - **Airtable** — shared database (Alerts, Scoring_Results, Actions tables)
 - **GitHub** — repository, documentation, portfolio
 
-## Checkpoint 2 Status: ✅ READY
-**Core requirement:** One alert record flows from Airtable through n8n + Flowise scoring and writes back to Airtable automatically.
+## Week 09 Status: ✅ COMPLETE — Prompt Optimization & End-to-End Scoring Live
+**Core requirement:** Flowise LLM correctly reads threat descriptions and produces input-dependent scoring outputs. n8n workflow parses JSON and writes to Airtable.
 
 **Completed:**
-- Airtable schema (Alerts & Scoring_Results tables) live and linked
-- n8n workflow with automatic trigger, Flowise scoring call, and result writeback
-- Status update from `pending_scoring` → `scored`
-- End-to-end test (TEST001) successful
+- Optimized Flowise threat scoring prompt to force variable outputs based on evidence
+- Built and tested n8n workflow: Airtable → Flowise → JSON parsing → Airtable Scoring_Results
+- Implemented Merge node to preserve record IDs through HTTP call
+- Normalized JSON arrays to strings for Airtable long-text fields
+- Tested with 3 alerts: phishing (high), routine maintenance (low), empty (informational)
+- All fields mapping correctly: relevance_score, severity_level, extracted_entities, threat_category, confidence, recommended_actions
+- Status update from `pending_scoring` → `scored` working
 
-**See:** [docs/checkpoint2-audit.md](docs/checkpoint2-audit.md) for full readiness assessment
+**Test Results:**
+- TEST001 (phishing): relevance_score=80, severity=high, threat_category=phishing ✓
+- TEST002 (firewall maintenance): relevance_score=5, severity=informational, threat_category=routine_activity ✓
+- TEST003 (empty): relevance_score=0, severity=informational (benign defaults) ✓
+
+**See:** [component-3-scoring/README.md](component-3-scoring/README.md) for Flowise prompt template and n8n mappings
 
 ## Component Details
 Each component has its own README:
@@ -72,16 +80,24 @@ copilot-instructions.md (full project context)
 prompt-log-mervin.md (AI tool interaction log)
 ```
 
-## Known Limitations
-- Scoring quality depends on Flowise prompt tuning and model behavior
-- Confidence values may need scaling (0-1 vs 0-100) before Airtable write
+## Known Limitations & Resolved Issues
+**Fixed (Week 09):**
+- ✓ Prompt now forces variable outputs based on threat description evidence
+- ✓ JSON parsing and field normalization working in n8n
+- ✓ Linked record fields correctly populated with Airtable IDs
+- ✓ Record ID preservation through HTTP → Merge → Normalize pipeline
+
+**Remaining:**
+- Confidence values may need scaling (0-1 vs 0-100) — currently expecting integers
 - Current milestone simulates upstream components through manual Airtable input
 - NER model accuracy is lower on cybersecurity terminology
 - Phishing classifier has ~20% false positive rate
 
-## Next Steps (Post-Checkpoint 2)
-1. Improve phishing classifier accuracy with more training data
-2. Enhance NER for cybersecurity-specific entity extraction
-3. Build full Components 1, 2, 4 workflows
-4. Implement real Slack alerting for high-priority threats
-5. Add persistent Flowise knowledge source management
+## Next Steps (Post-Week 09)
+1. Build out Components 1, 2, 4 workflows (currently manual Airtable input)
+2. Integrate real SIEM/security tool feeds into Airtable
+3. Fine-tune phishing classifier with more labeled training data
+4. Enhance NER for cybersecurity entity extraction (IPs, domains, CVEs)
+5. Implement real Slack alerting for high-priority threats
+6. Add persistent Flowise knowledge source management (MITRE ATT&CK, NIST frameworks)
+7. Load-test workflow with >100 alerts/day volume
