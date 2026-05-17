@@ -70,7 +70,8 @@
   - Confirmed required field handling in practice:
     - `Scoring_Results.alert_id` must be a linked-record array of Airtable record IDs
     - `extracted_entities` and `recommended_actions` are stored as long-text outputs after normalization
-    - `Alerts.status` operational values used in this milestone are `pending_scoring`, `scored`, and `failed`
+    - `Alerts.status` operational values used in this milestone are `pending_scoring`, `scored`, `failed`, and `error`
+    - `Alerts.error_reason` stores the validation or runtime failure message when a record cannot be processed
 - **What's in progress:**
   - Exporting final n8n workflow JSON artifact into the repo
   - Standardizing confidence scale before writeback

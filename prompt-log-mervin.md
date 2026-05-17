@@ -87,7 +87,7 @@ Do not log every autocomplete of a bracket or variable name.
 **Context:** After the scoring workflow and test records were working, I needed the project documentation to match the actual Checkpoint 2 state. I wanted the README, audit notes, and supporting docs to reflect the completed component scope instead of the older Week 8 planning state.
 
 **Prompt:**
-> update the readme file now
+> help me update the readme file now
 
 **Result:** Copilot helped me rewrite the project README so it reflected the working end-to-end scoring flow, the manual Airtable test-sample setup for my solo scope, and the verified TEST001 to TEST003 results. It also helped update the checkpoint audit and current-state docs so they matched the live workflow.
 
@@ -96,3 +96,26 @@ Do not log every autocomplete of a bracket or variable name.
 **What I changed:** I updated the README, the checkpoint audit, the results file, and `copilot-instructions.md` to show what was working, what remained open, and which parts were simulated for the Component 3 scope.
 
 **What I learned:** Good documentation is part of the deliverable. If the workflow is working but the README still describes an older state, the project looks unfinished even when the implementation is ready.
+
+## [2026-05-17] - Week 10: Error handling and confidence routing
+**Context:** Implement Week 10 lab items for Component 3: validation/error handling, confidence‑based routing, and brief dashboard documentation. Worked interactively in n8n and Airtable to wire nodes, fix mappings, and verify results.
+
+**Prompt:**
+> implement Week 10 error handling and confidence routing in my n8n workflow; help me wire Merge, IF, Set, Create and Update nodes; ensure Airtable receives `status`, `error_reason`, and `confidence` correctly; add week-10 docs and dashboard view notes.
+
+**Result:** Copilot provided step‑by‑step guidance to add a validation `Code` node and `IF` routing for invalid input (sets `status = error` and `error_reason`), preserve `record_id` using a `Merge` combineByPosition, normalize LLM responses and extract `confidence` in a `Normalizing Output` node, and branch on `confidence >= 80` to set `status = analyzed` or `needs_review`. It also advised exact n8n expressions, Airtable mapping shapes (linked‑record arrays, long‑text), and when to refresh Airtable nodes after schema changes.
+
+**Evaluation:** After iterative fixes the pipeline works as intended: invalid inputs are marked `error` with `error_reason`, high‑confidence items auto‑mark `analyzed`, and lower‑confidence items are routed to `needs_review`. `Scoring_Results` rows are created with normalized `confidence` values and `Alerts` records are updated reliably using `Record ID` writeback.
+
+**What I changed:**
+- Inserted a validation `Code` node and wired an `IF` node to route errors to an Airtable Update node that writes `status = error` and `error_reason`.
+- Added a `Merge` node (combineByPosition) to preserve original `record_id` across the HTTP Request to Flowise.
+- Implemented `Normalizing Output` JavaScript to extract and normalize `confidence` and to keep `raw_response` for troubleshooting.
+- Added IF branching and `Set` nodes to route `confidence >= 80` to `analyzed` and lower values to `needs_review` and updated Airtable mappings accordingly (linked record arrays, long‑text fields).
+- Created `week-10` folders and documentation files (`error-handling`, `confidence-routing`, `dashboard-views`) and a `views-explanation.md` with dashboard one‑liners.
+
+**What I learned:**
+- Preserve item shapes and record IDs across nodes — n8n frequently replaces the item context and `Merge` is essential.
+- Airtable field types are strict; always match mapping shapes (e.g., linked‑record arrays) and refresh n8n Airtable nodes after base changes.
+- Use `Record ID` for reliable updates rather than column matching unless intentionally matching on a column value.
+

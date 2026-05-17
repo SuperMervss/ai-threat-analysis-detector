@@ -59,7 +59,8 @@ Create two tables with the schema defined in [copilot-instructions.md](../copilo
 - threat_description (long text)
 - source (text)
 - timestamp (date/time)
-- status (single select: pending_scoring / scored / failed)
+- status (single select: pending_scoring / scored / failed / error)
+- error_reason (long text)
 
 **Scoring_Results table:**
 - score_id (primary key)
@@ -142,17 +143,65 @@ Use a low temperature setting such as 0.1 or 0.2 for more consistent results. Ke
 Build the workflow with record ID preservation:
 1. **Airtable Search/Trigger** — Read pending alerts from Alerts table
 2. **Set Node** — Keep `record_id`, `alert_id`, `input_text`, `source`
-3. **Flowise HTTP Request** — Send `input_text` to chatflow
-4. **Merge Node (Combine by Position)** — Merge Set output + HTTP output so Airtable record IDs are not lost
-5. **Code Node (Normalizing Output)** — Parse model JSON and normalize arrays to text
-6. **Airtable Create** — Write scored output to Scoring_Results
-7. **Airtable Update** — Mark source alert as `scored`
+3. **Code Node (Validate Required Fields)** — Build a missing-field list before calling Flowise
+   - Required fields: `alert_id`, `threat_description`, `source`, `timestamp`
+   - Output fields: `has_missing_fields`, `missing_fields`, `error_reason`, `status`
+   - If any are missing, set `status = "error"`
+4. **IF Node** — Route by `has_missing_fields`
+   - True path: send to Airtable update for the error branch
+   - False path: continue to Flowise
+5. **Airtable Update (Error Branch)** — Write the invalid record back to Alerts
+   - Set `status = "error"`
+   - Set `error_reason = {{$json.error_reason}}`
+   - Do not send this item to Flowise or Scoring_Results
+6. **Flowise HTTP Request** — Send `input_text` to chatflow
+7. **Merge Node (Combine by Position)** — Merge Set output + HTTP output so Airtable record IDs are not lost
+8. **Code Node (Normalizing Output)** — Parse model JSON and normalize arrays to text
+9. **Airtable Create** — Write scored output to Scoring_Results
+10. **Airtable Update** — Mark source alert as `scored`
 
 Critical expressions:
 - Linked record field (`Scoring_Results.alert_id`): `{{ [$json.record_id] }}`
 - score_id: `{{ $json.record_id + "-score" }}`
 - extracted_entities (long text): `{{ $json.extracted_entities_text }}`
 - recommended_actions (long text): `{{ $json.recommended_actions_text }}`
+
+Missing-field error branch behavior:
+- Build `error_reason` from the first missing required field or a joined list of missing fields
+- Update the original Alerts row with `status = "error"`
+- Write the reason into `Alerts.error_reason`
+- Do not call Flowise or create a scoring result when the input is incomplete
+
+Code node example for the validation step:
+
+```javascript
+const requiredFields = ['alert_id', 'threat_description', 'source', 'timestamp'];
+
+for (const item of items) {
+   const json = item.json || {};
+   const missingFields = requiredFields.filter((field) => {
+      const value = json[field];
+      return value === undefined || value === null || String(value).trim() === '';
+   });
+
+   item.json = {
+      ...json,
+      missing_fields: missingFields,
+      has_missing_fields: missingFields.length > 0,
+      status: missingFields.length > 0 ? 'error' : (json.status || 'pending_scoring'),
+      error_reason: missingFields.length > 0
+         ? `Missing required field(s): ${missingFields.join(', ')}`
+         : ''
+   };
+}
+
+return items;
+```
+
+IF node setup:
+- Condition: `{{$json.has_missing_fields}}` is true
+- True output: connect to the Airtable Update error branch
+- False output: connect to the Flowise HTTP Request
 
 Normalizing Output (Code node):
 ```javascript
@@ -278,3 +327,49 @@ return results;
 3. Build Components 1 (ingestion) and 2 (AI processing) data sources
 4. Implement Component 4 (Slack notifications, dashboard output)
 5. Add retry/error handling for Flowise prediction-limit responses
+
+## Week 10 Error Handling Implementation
+
+Use the scoring workflow to fail softly when Flowise is rate-limited or returns an invalid response.
+
+1. Retry the Flowise HTTP request before giving up.
+2. If the request still fails, write a fallback scoring record instead of stopping the workflow.
+3. Set fallback values such as `status = error`, `severity_level = informational`, `relevance_score = 0`, and `threat_category = unknown`.
+4. Log the error message to n8n console or Airtable so the record can be reviewed later.
+5. Keep the `record_id` and linked Airtable fields intact so the downstream merge and writeback still succeed.
+
+Example fallback behavior for the normalization step:
+
+```javascript
+let parsed = {};
+let errorMessage = '';
+
+try {
+   if (typeof raw.text === 'string') parsed = JSON.parse(raw.text);
+} catch (error) {
+   errorMessage = error.message;
+}
+
+if (!Object.keys(parsed).length) {
+   parsed = {
+      severity_level: 'informational',
+      relevance_score: 0,
+      threat_category: 'unknown',
+      status: 'error',
+      error_message: errorMessage || 'Flowise response was empty or invalid',
+   };
+}
+```
+
+## Week 10 Status: Error Handling, Confidence Routing & Dashboard Views
+
+Summary:
+- Validation & Error Handling: Added a `Code` validation node to detect missing fields and produce `error_reason`; invalid items are routed by an `IF` node to an Airtable Update that writes `status = error` and `error_reason` without calling Flowise.
+- Record Preservation: Added a `Merge` node configured `combineByPosition` to keep the original Airtable `record_id` aligned with Flowise responses so writeback remains traceable.
+- Confidence Extraction & Routing: `Normalizing Output` parses the model response and normalizes `confidence` to a 0–100 integer. An IF node routes items with `confidence >= 80` to `status = analyzed` (auto) and lower‑confidence items to `status = needs_review` for human triage.
+- Airtable Changes: Added single‑select values `analyzed`, `needs_review`, and `error` to `Alerts.status`, and added `confidence` and `error_reason` fields for traceability. Remember to refresh n8n Airtable nodes after schema changes.
+- Docs & Deliverables: Created `week-10/error-handling`, `week-10/confidence-routing`, and `week-10/dashboard-views` with implementation notes and one‑line dashboard view explanations.
+
+Acceptance test notes:
+- Verified TEST001/TEST002 were auto‑analyzed with confidence 90; TEST004 routed to `needs_review` with confidence 80; TEST003 was marked `error` with `error_reason` for missing fields. `Scoring_Results` rows were created with preserved `alert_id` linkage.
+

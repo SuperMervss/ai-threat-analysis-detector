@@ -40,6 +40,19 @@ A capstone project that ingests security threat alerts from multiple sources, pr
 
 **See:** [component-3-scoring/README.md](component-3-scoring/README.md) for Flowise prompt template and n8n mappings
 
+## Week 10 Status: ✅ COMPLETE — Error Handling, Confidence Routing & Dashboard Views
+**Core changes:** Implemented input validation, graceful error routing, and confidence‑based auto‑routing in the n8n scoring pipeline; added brief dashboard view documentation under `week-10/dashboard-views`.
+
+**Highlights:**
+- Validation & error handling: items missing required fields are detected early by a `Code` validation node; invalid items follow the IF True → Error Update branch which sets `Alerts.status = error` and writes a human‑readable `error_reason` to Airtable.
+- Record preservation: `Merge` is configured `combineByPosition` to keep the original Airtable `record_id` aligned with Flowise responses so writeback remains traceable.
+- Confidence extraction & routing: `Normalizing Output` JS node extracts and normalizes `confidence` (0–100). An IF node routes items with `confidence >= 80` to `status = analyzed` (auto), and lower‑confidence items to `status = needs_review` for human triage.
+- Airtable schema updates: added `analyzed`, `needs_review`, and `error` to `Alerts.status`; added `confidence` and `error_reason` fields for traceability. Reminder: refresh or re-create Airtable nodes in n8n after schema changes since n8n caches metadata.
+- Deliverables: created `week-10/error-handling`, `week-10/confidence-routing`, and `week-10/dashboard-views` with brief docs and one‑line dashboard explanations.
+
+**Acceptance tests:** Validated end‑to‑end with sample alerts — high‑confidence items created `Scoring_Results` and updated `Alerts` to `analyzed`, low‑confidence items moved to `needs_review`, and invalid records were marked `error` with `error_reason` preserved.
+
+
 ## Component Details
 Each component has its own README:
 - [component-1-data-ingestion/](component-1-data-ingestion/)

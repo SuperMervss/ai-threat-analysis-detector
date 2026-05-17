@@ -48,7 +48,9 @@
 - Ensure confidence is stored consistently as either 0-1 or 0-100 across all records
 
 3. **Add quota-aware error handling**
-- Handle Flowise prediction-limit responses without breaking the workflow
+- Retry the Flowise request before falling back
+- Preserve the Airtable record ID and write a safe default output if the model call fails
+- Log the failure to n8n console or Airtable for later review
 
 ---
 
